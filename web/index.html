@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rockstone · CT Image-Processing Workbench</title>
+<link rel="stylesheet" href="css/app.css?v=2.1" />
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <circle cx="12" cy="12" r="10.5" fill="#141009" stroke="#e8a24a" stroke-width="1.6"/>
+      <path d="M3.4 9.6c2.6-1.1 5.2-1.6 8.6-1.6s6 .5 8.6 1.6" fill="none" stroke="#e8a24a" stroke-width="1.1" opacity=".95"/>
+      <path d="M2.6 13c3-1.3 6-1.9 9.4-1.9s6.4.6 9.4 1.9" fill="none" stroke="#a2601a" stroke-width="1.1" opacity=".9"/>
+      <path d="M4.2 16.3c2.4-1 4.8-1.5 7.8-1.5s5.4.5 7.8 1.5" fill="none" stroke="#6e4c10" stroke-width="1.1" opacity=".9"/>
+      <circle cx="12" cy="12" r="10.5" fill="none" stroke="#cf882b" stroke-width=".7" stroke-dasharray="1.6 2.2" opacity=".65"/>
+    </svg>
+    <span class="brand-name">Rockstone</span><span class="brand-sub">CT Workbench</span>
+  </div>
+  <div id="dataset-info" class="dataset-info">no dataset loaded</div>
+  <div class="top-actions">
+    <span id="unit-badge" class="badge"></span>
+    <span id="history-badge" class="badge muted"></span>
+    <button id="btn-undo" class="btn ghost" title="Undo last change">↩ Undo</button>
+  </div>
+</header>
+
+<div id="layout">
+  <nav id="tabs">
+    <button data-tab="import" class="active"><i>1</i> Import</button>
+    <button data-tab="viewer"><i>2</i> Slice Viewer</button>
+    <button data-tab="volume"><i>3</i> 3D Volume</button>
+    <button data-tab="bh"><i>4</i> Beam Hardening</button>
+    <button data-tab="align"><i>5</i> Alignment</button>
+    <button data-tab="pipeline"><i>6</i> Pipeline</button>
+    <button data-tab="analysis"><i>7</i> Analysis &amp; Export</button>
+    <button data-tab="cracks"><i>8</i> Crack Detection</button>
+    <button data-tab="help"><i>?</i> Help</button>
+    <div class="tab-spacer"></div>
+    <div class="tab-note">Import → Inspect → Crop → BH Correction → Ring Removal → Denoise → Alignment → Calibration → Segmentation → Cracks → Reconstruction → Analysis → Export</div>
+  </nav>
+
+  <main id="main">
+
+    <!-- ------------------------------------------------====== 1 IMPORT -->
+    <section id="tab-import" class="tab active">
+      <h2>CT Data Import</h2>
+      <p class="hint">DICOM series · TIFF/PNG/JPEG slice stacks · RAW / headerless volumes.
+        Slice spacing, pixel size, image dimensions and scanner metadata are detected automatically.</p>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>From this machine</h3>
+          <div class="row">
+            <input id="import-path" type="text" placeholder="e.g. data/sample/dicom" spellcheck="false" />
+            <button id="btn-browse" class="btn">Browse…</button>
+          </div>
+          <div class="row">
+            <label class="lbl">Format
+              <select id="import-kind">
+                <option value="auto">auto-detect</option>
+                <option value="dicom">DICOM series</option>
+                <option value="stack">image stack (TIFF/PNG/JPEG)</option>
+                <option value="raw">RAW volume</option>
+              </select>
+            </label>
+            <label class="lbl">Slice spacing (mm) <input id="import-dz" type="number" step="0.01" placeholder="detected" /></label>
+            <label class="lbl">Pixel size (mm) <input id="import-dxy" type="number" step="0.01" placeholder="detected" /></label>
+          </div>
+          <div class="row">
+            <button id="btn-import" class="btn primary">Import path</button>
+            <label class="btn">Upload files<input id="file-input" type="file" multiple hidden /></label>
+            <button id="btn-sample" class="btn">Load synthetic sample</button>
+          </div>
+          <div id="import-msg" class="msg"></div>
+        </div>
+
+        <div class="card">
+          <h3>Detected automatically</h3>
+          <table class="kv" id="detect-table">
+            <tr><td>Slice spacing</td><td id="d-slice">—</td></tr>
+            <tr><td>Pixel size</td><td id="d-pixel">—</td></tr>
+            <tr><td>Image dimensions</td><td id="d-dims">—</td></tr>
+            <tr><td>Scanner metadata</td><td id="d-scanner">—</td></tr>
+            <tr><td>Source of values</td><td id="d-source">—</td></tr>
+          </table>
+          <h3>Acquisition</h3>
+          <table class="kv" id="acq-table"><tbody id="acq-body"><tr><td>—</td><td>—</td></tr></tbody></table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Path browser</h3>
+        <div id="browser-path" class="mono small"></div>
+        <div id="browser-list" class="browser-list"></div>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------- 2 SLICES -->
+    <section id="tab-viewer" class="tab">
+      <h2>2D Slice Viewer</h2>
+      <div class="viewer-grid">
+        <div class="canvas-card">
+          <canvas id="slice-canvas" width="512" height="512"></canvas>
+          <div class="canvas-hint">drag = window / level · wheel = slice · double-click = centre · Measure: click two points or drag · Thickness: calipers across a crack/layer</div>
+        </div>
+        <div class="side">
+          <div class="card">
+            <h3>Slice</h3>
+            <div class="row">
+              <input id="slice-slider" type="range" min="0" max="95" value="48" />
+              <span id="slice-label" class="mono">—</span>
+            </div>
+            <div class="row">
+              <label class="lbl">Window <input id="wl-width" type="number" step="10" /></label>
+              <label class="lbl">Level <input id="wl-level" type="number" step="10" /></label>
+              <button id="wl-auto" class="btn small">Auto</button>
+            </div>
+            <div class="row">
+              <button class="btn small preset" data-w="1500" data-l="-600">Lung</button>
+              <button class="btn small preset" data-w="2000" data-l="300">Bone</button>
+              <button class="btn small preset" data-w="3500" data-l="1250">Rock core</button>
+            </div>
+            <div class="row">
+              <label class="lbl">Overlay
+                <select id="slice-overlay">
+                  <option value="">none</option>
+                  <option value="mask">ROI mask</option>
+                  <option value="segmentation">segmentation</option>
+                </select>
+              </label>
+              <label class="lbl chk"><input id="slice-invert" type="checkbox" /> invert</label>
+              <label class="lbl">Color <input type="color" id="slice-color" value="#ff3c3c" /></label>
+            </div>
+            <div class="row">
+              <button id="slice-measure" class="btn small">📏 Measure</button>
+              <button id="slice-thickness" class="btn small">🧱 Thickness</button>
+              <button id="measure-clear" class="btn small ghost">Clear</button>
+              <span id="measure-out" class="mono">—</span>
+            </div>
+            <div class="row" id="thickness-row" hidden>
+              <span id="thickness-out" class="mono">—</span>
+            </div>
+            <table class="kv" id="slice-info"></table>
+          </div>
+          <div class="card">
+            <h3>Histogram</h3>
+            <canvas id="hist-canvas" width="360" height="140"></canvas>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------- 3 VOLUME -->
+    <section id="tab-volume" class="tab">
+      <h2>3D Volume Viewer</h2>
+      <div class="viewer-grid">
+        <div class="canvas-card">
+          <canvas id="vol-canvas" width="640" height="520"></canvas>
+          <div class="canvas-hint">drag = orbit · wheel = zoom · WebGL ray-marched rendering</div>
+        </div>
+        <div class="side">
+          <div class="card">
+            <h3>Render</h3>
+            <div class="row">
+              <label class="lbl chk"><input id="vol-auto" type="checkbox" checked /> auto-rotate</label>
+              <button id="vol-reset" class="btn small">Reset view</button>
+            </div>
+            <div class="row">
+              <label class="lbl">Window <input id="vol-width" type="number" step="100" /></label>
+              <label class="lbl">Level <input id="vol-level" type="number" step="100" /></label>
+            </div>
+            <div class="row">
+              <label class="lbl">Resolution
+                <select id="vol-maxdim"><option>128</option><option selected>192</option><option>256</option><option>384</option><option>512</option></select>
+              </label>
+              <label class="lbl">Smoothing <input id="vol-smooth" type="number" value="0" step="0.5" min="0" /></label>
+            </div>
+            <div class="row">
+              <label class="lbl">Source
+                <select id="vol-source">
+                  <option value="volume">current volume</option>
+                  <option value="reconstruction">pipeline reconstruction</option>
+                </select>
+              </label>
+              <button id="vol-reload" class="btn small">Reload</button>
+            </div>
+            <table class="kv" id="vol-info"></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- 4 BEAM HARDENING -->
+    <section id="tab-bh" class="tab">
+      <h2>Beam-Hardening Processing</h2>
+      <div class="stepper">
+        <span data-step="1">Original CT</span><b>→</b>
+        <span data-step="2">Detection</span><b>→</b>
+        <span data-step="3">Correction</span><b>→</b>
+        <span data-step="4">ROI / Crop</span><b>→</b>
+        <span data-step="5">Clean volume</span>
+      </div>
+
+      <div class="card">
+        <h3>Beam-hardening detection</h3>
+        <div class="row">
+          <label class="lbl">Slice <input id="bh-index" type="number" min="0" value="48" /></label>
+          <button id="btn-bh-detect" class="btn primary">Run detection</button>
+        </div>
+        <div class="grid cols-3">
+          <div class="stat"><div class="stat-label">Cupping severity</div><div class="stat-value" id="bh-sev">—</div><div class="stat-sub" id="bh-verdict">—</div></div>
+          <div class="stat"><div class="stat-label">Core mean</div><div class="stat-value" id="bh-core">—</div><div class="stat-sub">HU</div></div>
+          <div class="stat"><div class="stat-label">Shell mean</div><div class="stat-value" id="bh-shell">—</div><div class="stat-sub" id="bh-streak">—</div></div>
+        </div>
+        <canvas id="bh-profile" width="720" height="180"></canvas>
+      </div>
+
+      <div class="grid cols-2">
+        <!-- A: correction -->
+        <div class="card tool-a">
+          <h3>A · Beam-Hardening Correction</h3>
+          <div class="row">
+            <label class="lbl">Method
+              <select id="bh-method">
+                <option value="polynomial">Polynomial</option>
+                <option value="water">Water / material calibration</option>
+                <option value="thickness" selected>Chord-length (thickness)</option>
+                <option value="spectral">Spectral · Cu/Al filter model</option>
+              </select>
+            </label>
+            <label class="lbl">Strength <span id="bh-strength-val" class="mono">1.00</span>
+              <input id="bh-strength" type="range" min="0" max="1.5" step="0.05" value="1" />
+            </label>
+          </div>
+          <div class="row" id="bh-polynomial-row">
+            <label class="lbl">Polynomial degree <input id="bh-degree" type="number" min="2" max="6" value="3" /></label>
+          </div>
+          <div class="row spectral-params">
+            <label class="lbl">kVp <input id="bh-kvp" type="number" value="80" step="5" /></label>
+            <label class="lbl">Inherent Al (mm) <input id="bh-inherent" type="number" value="2.5" step="0.1" /></label>
+            <label class="lbl">Filter
+              <select id="bh-filter"><option value="copper">Copper (Cu)</option><option value="aluminum" selected>Aluminium (Al)</option><option value="none">none</option></select>
+            </label>
+            <label class="lbl">Filter mm <input id="bh-filtermm" type="number" value="3" step="0.1" /></label>
+            <label class="lbl">Material
+              <select id="bh-material"><option value="quartz" selected>Quartz / rock</option><option value="water">Water</option></select>
+            </label>
+          </div>
+          <div class="row">
+            <button id="btn-bh-preview" class="btn">Preview</button>
+            <button id="btn-bh-apply" class="btn primary">Apply correction</button>
+            <span id="bh-status" class="msg"></span>
+          </div>
+          <div class="wipe" id="bh-wipe">
+            <div class="wipe-after"><img id="bh-img-after" alt="after" /></div>
+            <div class="wipe-before" id="bh-wipe-before"><img id="bh-img-before" alt="before" /></div>
+            <div class="wipe-handle" id="bh-wipe-handle"></div>
+            <span class="wipe-tag left">BEFORE</span><span class="wipe-tag right">AFTER</span>
+          </div>
+          <div class="grid cols-2">
+            <div class="stat slim"><div class="stat-label">Severity before</div><div class="stat-value small" id="bh-sev-before">—</div></div>
+            <div class="stat slim"><div class="stat-label">Severity after</div><div class="stat-value small" id="bh-sev-after">—</div></div>
+          </div>
+        </div>
+
+        <!-- B: ROI / mask -->
+        <div class="card tool-b">
+          <h3>B · Beam-Hardening Region Crop / Mask</h3>
+          <div class="row">
+            <label class="lbl">Tool
+              <select id="roi-type">
+                <option value="ellipse">Ellipse ROI</option>
+                <option value="rect">Rectangle ROI</option>
+                <option value="polygon">Freehand ROI</option>
+                <option value="auto">Automatic specimen boundary</option>
+                <option value="remove_air">Remove air / background</option>
+                <option value="artifact">Mask severe-artifact areas</option>
+              </select>
+            </label>
+            <label class="lbl">Slice <input id="roi-index" type="number" min="0" value="48" /></label>
+          </div>
+          <div class="row" id="roi-artifact-row" hidden>
+            <label class="lbl">Mode
+              <select id="roi-artifact-mode">
+                <option value="residual">streak residual</option>
+                <option value="low">low / shadowed</option>
+                <option value="gradient">gradient rings</option>
+              </select>
+            </label>
+          </div>
+          <div class="canvas-card small">
+            <canvas id="roi-canvas" width="420" height="420"></canvas>
+            <div class="canvas-hint">drag to draw · drag inside a shape to move it · freehand: click points, double-click to close</div>
+          </div>
+          <div class="row">
+            <button id="btn-roi-preview" class="btn">Preview</button>
+            <button id="btn-roi-apply" class="btn primary">Apply mask to all slices</button>
+            <button id="btn-roi-clear" class="btn ghost">Clear mask</button>
+          </div>
+          <div class="row">
+            <button id="btn-roi-area" class="btn small">∑ Calculate ROI area</button>
+            <span id="roi-area-out" class="mono">—</span>
+          </div>
+          <div class="row">
+            <button id="btn-roi-air" class="btn warn">Remove background air</button>
+            <button id="btn-roi-clean" class="btn ghost">Clean volume (mask fill)</button>
+            <span id="roi-status" class="msg"></span>
+          </div>
+          <div class="grid cols-2">
+            <div class="img-pair"><div class="img-tag">preview before</div><img id="roi-img-before" alt="before" /></div>
+            <div class="img-pair"><div class="img-tag">preview after</div><img id="roi-img-after" alt="after" /></div>
+          </div>
+          <table class="kv" id="roi-info"></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- -------------------------------------------------- 5 ALIGNMENT -->
+    <section id="tab-align" class="tab">
+      <h2>CT Slice Alignment</h2>
+      <div class="align-grid">
+        <div class="canvas-card"><div class="img-tag">Reference Slice <span id="align-ref-label">—</span></div>
+          <canvas id="align-ref-canvas" width="360" height="360"></canvas></div>
+        <div class="canvas-card"><div class="img-tag">Current Slice <span id="align-cur-label">—</span></div>
+          <canvas id="align-cur-canvas" width="360" height="360"></canvas></div>
+        <div class="canvas-card"><div class="img-tag">Difference Overlay <span id="align-diff-label">Δ</span></div>
+          <canvas id="align-diff-canvas" width="360" height="360"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <label class="lbl">Reference slice <input id="align-ref" type="number" min="0" value="48" /></label>
+          <label class="lbl">Current slice <input id="align-cur" type="number" min="0" value="49" /></label>
+          <span class="method-radios" id="align-methods">
+            <label><input type="radio" name="amethod" value="phase" checked /> Phase correlation</label>
+            <label><input type="radio" name="amethod" value="cross" /> Cross-correlation</label>
+            <label><input type="radio" name="amethod" value="feature" /> Feature-based</label>
+            <label><input type="radio" name="amethod" value="mutualinfo" /> Mutual information</label>
+          </span>
+        </div>
+        <div class="readout" id="align-readout">X: — px &nbsp;&nbsp; Y: — px &nbsp;&nbsp; Rotation: —°</div>
+        <div class="row actions">
+          <button id="btn-align-auto" class="btn primary">Auto Align</button>
+          <button id="btn-align-manual" class="btn">Manual Align</button>
+          <button id="btn-align-apply-all" class="btn warn">Apply to All</button>
+          <span id="align-status" class="msg"></span>
+        </div>
+
+        <div class="manual-panel" id="manual-panel" hidden>
+          <div class="row">
+            <label class="lbl">X shift (px) <input id="m-dx" type="range" min="-10" max="10" step="0.1" value="0" /><span class="mono" id="m-dx-v">0.0</span></label>
+            <label class="lbl">Y shift (px) <input id="m-dy" type="range" min="-10" max="10" step="0.1" value="0" /><span class="mono" id="m-dy-v">0.0</span></label>
+          </div>
+          <div class="row">
+            <label class="lbl">Rotation (°) <input id="m-rot" type="range" min="-5" max="5" step="0.05" value="0" /><span class="mono" id="m-rot-v">0.00</span></label>
+            <label class="lbl chk"><input id="m-scale-enable" type="checkbox" /> enable scaling (disabled for quantitative work)</label>
+            <label class="lbl">Scale <input id="m-scale" type="range" min="0.9" max="1.1" step="0.005" value="1" disabled /><span class="mono" id="m-scale-v">1.000</span></label>
+          </div>
+          <div class="row">
+            <button id="btn-manual-preview" class="btn small">Update preview</button>
+            <button id="btn-manual-apply" class="btn primary">Apply to current slice</button>
+          </div>
+        </div>
+
+        <div class="grid cols-2">
+          <div class="img-pair"><div class="img-tag">aligned preview</div><img id="align-aligned" alt="aligned" /></div>
+          <div class="img-pair"><div class="img-tag">difference after alignment</div><img id="align-diff-after" alt="diff after" /></div>
+        </div>
+        <div class="est-meta mono small" id="align-est-meta"></div>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------- 6 PIPELINE -->
+    <section id="tab-pipeline" class="tab">
+      <h2>Processing Pipeline</h2>
+      <p class="hint">Import → Inspect → Crop → Beam-Hardening Correction → Ring Artifact Removal →
+        Noise Reduction → Slice Alignment → Calibration → Segmentation → Crack Detection →
+        3D Reconstruction → Quantitative Analysis → Export</p>
+      <div class="row">
+        <button id="btn-pipeline-run" class="btn primary">▶ Run pipeline</button>
+        <button id="btn-pipeline-default" class="btn">Reset plan</button>
+        <div class="progress"><div id="pipeline-bar"></div></div>
+        <span id="pipeline-status" class="msg"></span>
+      </div>
+      <div id="pipeline-stages" class="stages"></div>
+      <div class="card">
+        <h3>Run log</h3>
+        <div id="pipeline-log" class="log mono"></div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- 7 ANALYSIS/EXPORT -->
+    <section id="tab-analysis" class="tab">
+      <h2>Quantitative Analysis &amp; Export</h2>
+      <div class="row">
+        <button id="btn-analysis" class="btn primary">Run analysis</button>
+        <span id="analysis-status" class="msg"></span>
+      </div>
+      <div class="grid cols-2">
+        <div class="card"><h3>Statistics</h3><table class="kv" id="stats-table"></table></div>
+        <div class="card">
+          <h3>Segmentation classes</h3>
+          <table class="tbl" id="classes-table"><thead><tr><th>Class</th><th>Voxels</th><th>Volume (cm³)</th><th>Mean</th></tr></thead><tbody></tbody></table>
+          <h3>Radial density profile</h3>
+          <canvas id="radial-canvas" width="360" height="160"></canvas>
+        </div>
+      </div>
+      <div class="card" id="pore-card">
+        <h3>Pore-size distribution</h3>
+        <p class="hint">Resolves the dark void space into individual pores by local
+          (inscribed-sphere) thickness, so an interconnected network still yields a size
+          distribution. Complement of crack detection: fracture apertures are filtered out
+          by the elongation limit. Honours the current ROI mask.</p>
+        <div class="row">
+          <label class="lbl">Threshold
+            <select id="po-threshold-mode"><option value="auto">auto (air-anchored)</option><option value="value">custom HU</option></select>
+          </label>
+          <label class="lbl">HU value <input type="number" id="po-threshold-value" value="-500" step="50"></label>
+          <label class="lbl">Min voxels <input type="number" id="po-min-voxels" value="8" min="1"></label>
+          <label class="lbl">Max elongation <input type="number" id="po-max-elongation" value="0.7" step="0.05" min="0" max="1"></label>
+        </div>
+        <div class="row actions">
+          <button id="btn-po-analyse" class="btn primary">Analyse pores</button>
+          <button id="btn-po-clear" class="btn ghost">Clear</button>
+          <label class="lbl">Slice <input type="number" id="po-slice-index" value="48" min="0"></label>
+          <label class="lbl">Tint <input type="color" id="po-color" value="#40d2be"></label>
+          <span id="po-status" class="msg"></span>
+        </div>
+        <div class="grid cols-2">
+          <div>
+            <table class="kv" id="po-summary-table"></table>
+          </div>
+          <div>
+            <div class="msg small">Size distribution (equivalent-sphere diameter)</div>
+            <canvas id="po-hist-canvas" width="360" height="140"></canvas>
+            <div class="msg small" id="po-hist-note"></div>
+          </div>
+        </div>
+        <h3>Largest pores</h3>
+        <table class="tbl" id="po-components-table">
+          <thead><tr><th>#</th><th>Volume (mm³)</th><th>Ø eq. (mm)</th><th>Ø local (mm)</th><th>Sphericity</th><th>Center (z,y,x)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <h3>Slice overlay</h3>
+        <div class="canvas-card small"><img id="po-overlay-img" alt="pore overlay" style="max-width:100%"></div>
+      </div>
+      <div class="card">
+        <h3>Export</h3>
+        <div class="row">
+          <a class="btn" data-export="tiff">TIFF stack</a>
+          <a class="btn" data-export="png">PNG zip</a>
+          <a class="btn" data-export="raw">RAW</a>
+          <a class="btn" data-export="nrrd">NRRD</a>
+          <a class="btn" data-export="csv">Stats CSV</a>
+          <a class="btn" data-export="json">Metadata JSON</a>
+        </div>
+        <div class="msg small">Exports carry the current value scale; TIFF/RAW include the HU range so they re-import losslessly.</div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------- 8 CRACK DETECTION -->
+    <section id="tab-cracks" class="tab">
+      <h2>Crack / Fracture Detection</h2>
+      <p class="hint">Finds thin, air-filled voids inside the rock matrix: dark, elongated
+        structures — distinct from round pores. Works on the current ROI mask when set, otherwise
+        on the auto-detected specimen. No cracked data handy? Try the fractured demo sample.</p>
+      <div class="card">
+        <h3>Detection</h3>
+        <div class="row">
+          <label class="lbl">Threshold
+            <select id="cr-threshold-mode"><option value="auto">auto (air-anchored)</option><option value="value">custom HU</option></select>
+          </label>
+          <label class="lbl">HU value <input type="number" id="cr-threshold-value" value="-500" step="50"></label>
+          <label class="lbl">Min voxels <input type="number" id="cr-min-voxels" value="25" min="1"></label>
+          <label class="lbl">Min elongation <input type="number" id="cr-min-elongation" value="0.55" step="0.05" min="0" max="1"></label>
+          <label class="lbl">Max aperture (mm) <input type="number" id="cr-max-aperture" value="4.0" step="0.5" min="0"></label>
+        </div>
+        <div class="row actions">
+          <button id="btn-cr-detect" class="btn primary">Detect cracks</button>
+          <button id="btn-cr-clear" class="btn ghost">Clear</button>
+          <button id="btn-cr-demo" class="btn">Load fractured demo sample</button>
+          <span id="cr-status" class="msg"></span>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>Summary</h3>
+          <table class="kv" id="cr-summary-table"></table>
+        </div>
+        <div class="card">
+          <h3>Detected components</h3>
+          <table class="tbl" id="cr-components-table">
+            <thead><tr><th>#</th><th>Voxels</th><th>Volume (mm³)</th><th>Aperture (mm)</th><th>Orientation</th><th>Center (z,y,x)</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>Orientation histogram</h3>
+          <canvas id="cr-orient-canvas" width="360" height="150"></canvas>
+        </div>
+        <div class="card">
+          <h3>Crack area per slice</h3>
+          <canvas id="cr-slice-canvas" width="360" height="150"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Slice overlay</h3>
+        <div class="row">
+          <label class="lbl">Slice <input type="number" id="cr-slice-index" value="48" min="0"></label>
+          <label class="lbl">Tint <input type="color" id="cr-color" value="#ff963c"></label>
+          <span class="msg muted small">Crack voxels are tinted in the chosen color; outlines mark component edges.</span>
+        </div>
+        <div class="canvas-card small"><img id="cr-overlay-img" alt="crack overlay" style="max-width:100%"></div>
+      </div>
+    </section>
+
+    <!-- -------------------------------------------------------- 8 HELP -->
+    <section id="tab-help" class="tab">
+      <div class="card help-bar">
+        <h2>User Manual</h2>
+        <div class="row">
+          <a class="btn" href="/manual/Rockstone-CT-Workbench-Manual.pdf" target="_blank">Open printable PDF</a>
+          <span class="msg small">The manual below is the same document as the PDF — installation, feature guides, API reference, and testing.</span>
+        </div>
+      </div>
+      <iframe id="help-frame" data-src="/manual/manual.html" title="Rockstone CT Workbench — User Manual"></iframe>
+    </section>
+
+  </main>
+</div>
+
+<footer id="statusbar"><span id="status-text">ready</span><span id="status-right" class="mono"></span></footer>
+<script type="module" src="js/main.js?v=2.1.12"></script>
+</body>
+</html>
